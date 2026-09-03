@@ -20,7 +20,8 @@
   },
   "homepage": "https://github.com/thaiduy0282/QR_Scan#readme",
   "dependencies": {
-    "html5-qrcode": "^2.3.8",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

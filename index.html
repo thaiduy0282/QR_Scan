@@ -111,11 +111,14 @@
     justify-content: center;
     margin-bottom: 12px;
   }
-  #reader video, #reader img { width: 100% !important; display: block; }
-  #reader__scan_region { min-height: 0 !important; }
-  #reader__dashboard { display: none; }
-  #reader:empty::after {
-    content: "Camera đang tắt";
+  #reader video {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+  #reader video[hidden] { display: none; }
+  #readerHint {
     color: #8ea3b2;
     font-size: 15px;
   }
@@ -272,7 +275,10 @@
     <button class="small" id="newDayBtn">Ngày mới</button>
   </div>
 
-  <div id="reader"></div>
+  <div id="reader">
+    <video id="preview" playsinline muted hidden></video>
+    <span id="readerHint">Camera đang tắt</span>
+  </div>
 
   <div class="btn-row" id="camControls">
     <button class="primary" id="startBtn">Bật camera</button>
@@ -338,7 +344,8 @@
 </main>
 
 <script type="module">
-import { Html5Qrcode, Html5QrcodeScannerState, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import { BrowserQRCodeReader } from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType } from "@zxing/library";
 import * as XLSX from "xlsx";
 
 (() => {
@@ -350,9 +357,11 @@ import * as XLSX from "xlsx";
   const DEFAULTS = { delimiter: ",", fieldIndex: 2 };
 
   let state = { date: today(), items: [], settings: { ...DEFAULTS } };
-  let scanner = null;
+  let codeReader = null;
+  let scanControls = null;
   let running = false;
   let scannerBusy = false;
+  let scanPaused = false;
   let editIndex = -1;      // >= 0 khi đang sửa một dòng có sẵn
   let manualMode = false;
   let audioCtx = null;
@@ -488,52 +497,45 @@ import * as XLSX from "xlsx";
   // Camera
   // ------------------------------------------------------------------
 
-  const scanConfig = {
-    fps: 12,
-    qrbox: (viewfinderWidth, viewfinderHeight) => {
-      const minSide = Math.min(viewfinderWidth, viewfinderHeight);
-      const box = Math.max(220, Math.min(320, Math.floor(minSide * 0.72)));
-      return { width: box, height: box };
-    },
-    aspectRatio: 1.333,
-    disableFlip: false,
-    experimentalFeatures: { useBarCodeDetectorIfSupported: false }
+  const readerOptions = {
+    delayBetweenScanAttempts: 80,
+    delayBetweenScanSuccess: 800,
+    tryPlayVideoTimeout: 8000
   };
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  function createScanner() {
-    scanner = new Html5Qrcode("reader", {
-      formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-      experimentalFeatures: { useBarCodeDetectorIfSupported: false },
-      verbose: false
-    });
-    return scanner;
+  function getReader() {
+    if (!codeReader) {
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]);
+      hints.set(DecodeHintType.TRY_HARDER, true);
+      codeReader = new BrowserQRCodeReader(hints, readerOptions);
+    }
+    return codeReader;
   }
 
-  // Tear the scanner down completely and never reuse the instance.
-  // html5-qrcode's stop() opens an internal state transition before its
-  // teardown; if that teardown throws part-way (it does when the container
-  // was emptied by clear()), the transition is never closed and every later
-  // start() throws "Cannot transition to a new state, already under
-  // transition". Dropping the instance and resetting the DOM ourselves keeps
-  // that state machine out of the picture.
-  async function disposeScanner() {
-    const inst = scanner;
-    scanner = null;
+  // Stop the decode loop and hand the camera back to the OS. We own the
+  // <video> element and the MediaStream, so teardown is just "stop the tracks"
+  // — there is no library-internal state left to get stuck in.
+  function releaseCamera() {
     running = false;
-    if (inst) {
-      try {
-        if (inst.getState() !== Html5QrcodeScannerState.NOT_STARTED) {
-          await inst.stop();
-        }
-      } catch (_) {}
+    scanPaused = false;
+    if (scanControls) {
+      try { scanControls.stop(); } catch (_) {}
+      scanControls = null;
     }
-    const reader = $("reader");
-    if (reader) {
-      reader.innerHTML = "";
-      reader.removeAttribute("style");
+    const video = $("preview");
+    if (video) {
+      const stream = video.srcObject;
+      if (stream && stream.getTracks) {
+        stream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+      }
+      video.srcObject = null;
+      try { video.pause(); } catch (_) {}
+      video.hidden = true;
     }
+    $("readerHint").hidden = false;
   }
 
   function updateMobileGuide() {
@@ -550,32 +552,33 @@ import * as XLSX from "xlsx";
     setStatus("Đang mở camera…");
     updateMobileGuide();
 
+    // Constraints go straight to getUserMedia, so "environment" picks the rear
+    // camera without needing device labels — those are empty on iOS until
+    // permission has already been granted.
     const attempts = [
-      {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      { facingMode: "environment" },
-      { facingMode: { ideal: "user" } },
-      { facingMode: "user" }
+      { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+      { video: { facingMode: "environment" } },
+      { video: true }
     ];
 
+    const video = $("preview");
     let lastErr = null;
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Trình duyệt này không hỗ trợ camera.");
       }
       for (let i = 0; i < attempts.length; i++) {
-        // Each attempt gets a brand-new instance: a failed start() can leave
-        // the previous one wedged mid-transition.
-        await disposeScanner();
-        // Give the camera hardware a moment to release before re-opening;
-        // iOS Safari rejects an immediate re-acquire with NotReadableError.
+        releaseCamera();
+        // Let the camera hardware settle before re-opening; iOS Safari rejects
+        // an immediate re-acquire with NotReadableError.
         if (i > 0) await sleep(300);
         try {
-          await createScanner().start(attempts[i], scanConfig, onScan, () => {});
+          video.hidden = false;
+          $("readerHint").hidden = true;
+          scanControls = await getReader().decodeFromConstraints(
+            attempts[i], video, onDecode);
           running = true;
+          scanPaused = false;
           $("stopBtn").disabled = false;
           setStatus("Đưa mã QR vào khung.");
           return;
@@ -585,7 +588,7 @@ import * as XLSX from "xlsx";
       }
       throw lastErr || new Error("Không mở được camera.");
     } catch (err) {
-      await disposeScanner();
+      releaseCamera();
       $("startBtn").disabled = false;
       setStatus(cameraError(err), "error");
     } finally {
@@ -596,22 +599,21 @@ import * as XLSX from "xlsx";
     }
   }
 
+  // Called for every frame: `err` is a NotFoundException whenever the frame
+  // holds no QR code, which is most of them. Only results matter here.
+  function onDecode(result) {
+    if (!result || scanPaused) return;
+    onScan(result.getText());
+  }
+
+  // The camera keeps running while an entry is open; we just ignore results.
+  // Nothing is torn down, so there is no re-acquire to fail on resume.
   function pauseScan() {
-    if (!running || !scanner) return;
-    try {
-      if (scanner.getState() === Html5QrcodeScannerState.SCANNING) {
-        scanner.pause(true);
-      }
-    } catch (_) {}
+    if (running) scanPaused = true;
   }
 
   function resumeScan() {
-    if (!running || !scanner) return;
-    try {
-      if (scanner.getState() === Html5QrcodeScannerState.PAUSED) {
-        scanner.resume();
-      }
-    } catch (_) {}
+    if (running) scanPaused = false;
   }
 
   async function stopCamera() {
@@ -619,7 +621,7 @@ import * as XLSX from "xlsx";
     if (!running) return;
     scannerBusy = true;
     try {
-      await disposeScanner();
+      releaseCamera();
     } finally {
       running = false;
       scannerBusy = false;
@@ -637,8 +639,8 @@ import * as XLSX from "xlsx";
       return "Không tìm thấy camera trên máy này.";
     if (name === "NotReadableError" || /could not start video source/i.test(msg))
       return "Camera đang bị ứng dụng khác chiếm. Đóng app đang dùng camera rồi bật lại.";
-    if (/already under transition|not running or paused/i.test(msg))
-      return "Camera đang bận. Bấm bật lại sau vài giây.";
+    if (name === "OverconstrainedError")
+      return "Camera không hỗ trợ cấu hình này. Thử lại hoặc dùng nhập tay.";
     if (location.protocol !== "https:" && location.hostname !== "localhost")
       return "Camera cần https. Hãy mở trang qua GitHub Pages.";
     return "Không mở được camera. " + msg;
