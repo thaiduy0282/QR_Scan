@@ -44,6 +44,11 @@
     <input type="text" id="manualCode" placeholder="Nhập mã sản phẩm" hidden
            autocomplete="off" autocapitalize="characters" spellcheck="false" />
     <p class="code" id="entryCode"></p>
+    <div class="field tight">
+      <label for="xeInput">Số xe</label>
+      <input type="text" id="xeInput" autocomplete="off"
+             autocapitalize="characters" spellcheck="false" placeholder="Vd: B2301" />
+    </div>
     <p class="dupe" id="entryDupe" hidden></p>
     <input type="tel" id="qtyInput" inputmode="numeric" pattern="[0-9]*"
            placeholder="Số lượng" autocomplete="off" />
@@ -73,8 +78,12 @@
       <input type="text" id="delimInput" autocomplete="off" spellcheck="false" />
     </div>
     <div class="field">
-      <label for="fieldInput">Lấy đoạn thứ mấy</label>
+      <label for="fieldInput">Đoạn của mã sản phẩm</label>
       <input type="tel" id="fieldInput" inputmode="numeric" pattern="[0-9]*" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label for="xeFieldInput">Đoạn của số xe (để trống nếu không có)</label>
+      <input type="tel" id="xeFieldInput" inputmode="numeric" pattern="[0-9]*" autocomplete="off" />
     </div>
     <div class="field">
       <label for="testInput">Dán thử một chuỗi QR để kiểm tra</label>

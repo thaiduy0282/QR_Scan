@@ -5,15 +5,31 @@ import { load } from "./store.js";
 import {
   startCamera, stopCamera, isScanning, updateMobileGuide, setScanHandler
 } from "./scanner.js";
-import { onScan, openEntry, openManual, closeEntry, commit, focusQty } from "./entry.js";
+import {
+  onScan, openExisting, openManual, closeEntry, commit, focusQty,
+  isEntryOpen, pendingCode
+} from "./entry.js";
 import { render, clearAll, startNewDay, setEditHandler } from "./list.js";
 import { exportFile, shareFile } from "./excel.js";
 import { syncSettingsUI, readSettings, updatePreview } from "./settings.js";
 
 setScanHandler(onScan);
-setEditHandler(openEntry);
+setEditHandler(openExisting);
 
-$("startBtn").onclick = startCamera;
+// Còn một mã đang nhập dở mà bật camera thì sẽ mất: hỏi lưu trước.
+function guardUnsaved() {
+  if (!isEntryOpen()) return true;
+  const code = pendingCode() || "đang nhập";
+  const saveIt = confirm(
+    `Còn mã ${code} chưa lưu.\n\n` +
+    "OK: lưu rồi bật camera.\n" +
+    "Cancel: quay lại nhập tiếp."
+  );
+  if (!saveIt) { focusQty(); return false; }
+  return commit("set");
+}
+
+$("startBtn").onclick = () => { if (guardUnsaved()) startCamera(); };
 $("stopBtn").onclick = () => { stopCamera(); setStatus("Camera đã tắt."); };
 $("manualBtn").onclick = openManual;
 $("saveBtn").onclick = () => commit("set");

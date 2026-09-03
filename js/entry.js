@@ -1,22 +1,31 @@
 // Form nhập số lượng cho mã vừa quét (hoặc nhập tay).
 
 import { $, bringIntoView, setStatus } from "./dom.js";
-import { state, save, parseCode, findItem } from "./store.js";
-import { today } from "./util.js";
+import { state, save, parseScan, findItem } from "./store.js";
+import { today, clock } from "./util.js";
 import { buzz, primeAudio } from "./audio.js";
 import { isScanning, stopCamera } from "./scanner.js";
 import { render } from "./list.js";
 
 let editIndex = -1;      // >= 0 khi đang sửa một dòng có sẵn
-
 let manualMode = false;
-
 let lastReject = { text: "", at: 0 };
 
-export function onScan(text) {
-  if (!$("entry").hidden) return;   // đang nhập dở, bỏ qua
+// Số xe thường giữ nguyên suốt một chuyến, nên nhớ lại để điền sẵn khi
+// chuỗi QR không có đoạn số xe.
+let lastVehicle = "";
 
-  const code = parseCode(text);
+export function isEntryOpen() { return !$("entry").hidden; }
+
+export function pendingCode() {
+  if (!isEntryOpen()) return "";
+  return manualMode ? $("manualCode").value.trim() : $("entryCode").textContent;
+}
+
+export function onScan(text) {
+  if (isEntryOpen()) return;   // đang nhập dở, bỏ qua
+
+  const { code, xe } = parseScan(text);
   if (!code) {
     // The loop decodes every frame, so an unreadable code would otherwise
     // re-buzz 30 times a second while it sits in view.
@@ -33,24 +42,20 @@ export function onScan(text) {
   // và người dùng chủ động bật lại khi muốn quét tiếp.
   stopCamera();
   buzz(true);
-  openEntry(code, -1, text);
+  openScanned(code, xe, text);
 }
 
-export function openEntry(code, index, raw) {
+function fillEntry({ title, code, xe, raw, index, existing }) {
   editIndex = index;
-  manualMode = false;
-
-  $("manualCode").hidden = true;
-  $("entryCode").hidden = false;
-  $("entryCode").textContent = code;
+  $("entryTitle").textContent = title;
   $("entryCode").dataset.raw = raw || "";
-  $("entryTitle").textContent = index >= 0 ? "Sửa dòng đã nhập" : "Mã vừa quét";
+  $("xeInput").value = xe || "";
 
-  const existing = index >= 0 ? state.items[index] : findItem(code);
   if (existing) {
     $("entryDupe").hidden = false;
-    $("entryDupe").textContent =
-      `Mã này đã nhập ${existing.qty} lúc ${clock(existing.at)}.`;
+    $("entryDupe").textContent = existing.xe
+      ? `Mã này với xe ${existing.xe} đã nhập ${existing.qty} lúc ${clock(existing.at)}.`
+      : `Mã này đã nhập ${existing.qty} lúc ${clock(existing.at)}.`;
     $("qtyInput").value = existing.qty;
     $("addBtn").hidden = index >= 0;   // sửa thì không cần cộng dồn
   } else {
@@ -62,6 +67,32 @@ export function openEntry(code, index, raw) {
   $("entry").hidden = false;
   setStatus("");
   focusQty();
+}
+
+export function openScanned(code, xe, raw) {
+  manualMode = false;
+  $("manualCode").hidden = true;
+  $("entryCode").hidden = false;
+  $("entryCode").textContent = code;
+  const vehicle = xe || lastVehicle;
+  fillEntry({
+    title: "Mã vừa quét", code, xe: vehicle, raw, index: -1,
+    existing: findItem(code, vehicle)
+  });
+}
+
+// Nút "Sửa" trên danh sách: mở đúng dòng đang có trong state.items.
+export function openExisting(index) {
+  const it = state.items[index];
+  if (!it) return;
+  manualMode = false;
+  $("manualCode").hidden = true;
+  $("entryCode").hidden = false;
+  $("entryCode").textContent = it.code;
+  fillEntry({
+    title: "Sửa dòng đã nhập", code: it.code, xe: it.xe || "",
+    raw: it.raw, index, existing: it
+  });
 }
 
 export function openManual() {
@@ -76,6 +107,7 @@ export function openManual() {
   $("addBtn").hidden = true;
   $("manualCode").hidden = false;
   $("manualCode").value = "";
+  $("xeInput").value = lastVehicle;
   $("qtyInput").value = "";
   $("entry").hidden = false;
   bringIntoView($("entry"));
@@ -102,12 +134,13 @@ export function closeEntry() {
   }
 }
 
+// Trả về true khi đã ghi xong, để nơi gọi biết có nên đi tiếp hay không.
 export function commit(mode) {
   const qty = parseInt($("qtyInput").value, 10);
   if (!Number.isFinite(qty) || qty < 0) {
     setStatus("Số lượng chưa hợp lệ.", "error");
     focusQty();
-    return;
+    return false;
   }
 
   const code = manualMode
@@ -117,16 +150,21 @@ export function commit(mode) {
   if (!code) {
     setStatus("Chưa có mã sản phẩm.", "error");
     $("manualCode").focus();
-    return;
+    return false;
   }
+
+  const xe = $("xeInput").value.trim().toUpperCase();
+  lastVehicle = xe;
 
   if (editIndex >= 0) {
     const it = state.items[editIndex];
     it.code = code;
+    it.xe = xe;
     it.qty = qty;
     it.at = Date.now();
   } else {
-    const existing = findItem(code);
+    // Trùng mã nhưng khác xe là một dòng mới; chỉ cộng dồn khi trùng cả cặp.
+    const existing = findItem(code, xe);
     if (existing) {
       existing.qty = mode === "add" ? existing.qty + qty : qty;
       existing.at = Date.now();
@@ -134,6 +172,7 @@ export function commit(mode) {
     } else {
       state.items.push({
         code,
+        xe,
         qty,
         at: Date.now(),
         raw: $("entryCode").dataset.raw || ""
@@ -147,5 +186,6 @@ export function commit(mode) {
   save();
   render();
   closeEntry();
-  setStatus(`Đã lưu ${code} = ${qty}.`, "ok");
+  setStatus(`Đã lưu ${code}${xe ? " · xe " + xe : ""} = ${qty}.`, "ok");
+  return true;
 }

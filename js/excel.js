@@ -2,23 +2,23 @@
 
 import * as XLSX from "xlsx";
 import { $, setStatus } from "./dom.js";
-import { state } from "./store.js";
+import { state, groupItems, vehicleNote } from "./store.js";
 import { viDate, clock } from "./util.js";
 
 export function buildWorkbook() {
-  const rows = state.items
-    .slice()
+  // Mỗi mã sản phẩm một dòng; số xe gộp vào cột ghi chú.
+  const rows = groupItems()
     .sort((a, b) => a.code.localeCompare(b.code, "en"))
-    .map(it => ({
-      "Mã sản phẩm": it.code,
-      "Số lượng": it.qty,
-      "Giờ quét": clock(it.at)
+    .map(g => ({
+      "Mã sản phẩm": g.code,
+      "Số lượng": g.qty,
+      "Số xe": vehicleNote(g),
+      "Giờ quét": clock(g.at)
     }));
 
-  const ws = XLSX.utils.json_to_sheet(rows, {
-    header: ["Mã sản phẩm", "Số lượng", "Giờ quét"]
-  });
-  ws["!cols"] = [{ wch: 20 }, { wch: 10 }, { wch: 10 }];
+  const header = ["Mã sản phẩm", "Số lượng", "Số xe", "Giờ quét"];
+  const ws = XLSX.utils.json_to_sheet(rows, { header });
+  ws["!cols"] = [{ wch: 20 }, { wch: 10 }, { wch: 34 }, { wch: 10 }];
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, viDate(state.date).replace(/\//g, "-"));

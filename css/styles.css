@@ -1,4 +1,13 @@
 :root {
+    /* Kiểu chữ dùng chung, tránh mỗi view một cỡ */
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --fs-hint: 12px;    /* ghi chú nhỏ, giờ quét */
+    --fs-note: 14px;    /* nhãn, nút phụ, dòng trạng thái */
+    --fs-body: 15px;    /* mã trong danh sách, hướng dẫn */
+    --fs-base: 16px;    /* cỡ nền, nút, ô nhập cài đặt */
+    --fs-qty: 19px;     /* số lượng trong danh sách */
+    --fs-input: 22px;   /* ô nhập chính trong form */
+    --fs-code: 26px;    /* mã sản phẩm vừa quét */
     --bg: #eef1f4;
     --surface: #ffffff;
     --ink: #16212b;
@@ -21,7 +30,7 @@
     background: var(--bg);
     color: var(--ink);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    font-size: 16px;
+    font-size: var(--fs-base);
     line-height: 1.45;
     padding-bottom: env(safe-area-inset-bottom);
   }
@@ -46,8 +55,8 @@
     justify-content: space-between;
     gap: 12px;
   }
-  header .day { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
-  header .tally { font-size: 14px; color: #a9bccb; font-variant-numeric: tabular-nums; flex: none; }
+  header .day { font-size: var(--fs-base); font-weight: 600; letter-spacing: -0.01em; }
+  header .tally { font-size: var(--fs-note); color: #a9bccb; font-variant-numeric: tabular-nums; flex: none; }
   header .tally b { color: #fff; font-weight: 600; }
 
   /* ---- khối chung ---- */
@@ -60,7 +69,7 @@
     margin-bottom: 12px;
   }
   .card h2 {
-    font-size: 13px;
+    font-size: var(--fs-note);
     font-weight: 600;
     color: var(--muted);
     margin: 0 0 10px;
@@ -70,7 +79,7 @@
 
   button {
     font: inherit;
-    font-size: 16px;
+    font-size: var(--fs-base);
     font-weight: 500;
     padding: 13px 16px;
     min-height: 48px;
@@ -83,7 +92,7 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.primary:active { background: var(--accent-dark); }
   button.wide { width: 100%; }
-  button.small { font-size: 14px; padding: 8px 12px; min-height: 38px; }
+  button.small { font-size: var(--fs-note); padding: 8px 12px; min-height: 38px; }
   button.quiet { background: transparent; border-color: transparent; color: var(--muted); }
   button.danger { color: var(--danger); }
   button:disabled { opacity: .4; cursor: default; }
@@ -118,15 +127,15 @@
   #reader video[hidden] { display: none; }
   #readerHint {
     color: #8ea3b2;
-    font-size: 15px;
+    font-size: var(--fs-body);
   }
 
   /* ---- ô nhập số lượng ---- */
 
   #entry { border-color: var(--accent); border-width: 2px; }
   #entry .code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 26px;
+    font-family: var(--mono);
+    font-size: var(--fs-code);
     font-weight: 600;
     letter-spacing: -0.01em;
     word-break: break-all;
@@ -135,7 +144,7 @@
   #entry input[type="text"], #entry input[type="tel"] {
     width: 100%;
     font: inherit;
-    font-size: 22px;
+    font-size: var(--fs-input);
     font-variant-numeric: tabular-nums;
     padding: 14px;
     border: 1px solid var(--line);
@@ -143,7 +152,9 @@
     background: #fff;
     color: var(--ink);
   }
-  #entry #manualCode { font-size: 18px; font-family: ui-monospace, Menlo, monospace; margin-bottom: 10px; }
+  #entry #manualCode { font-family: var(--mono); margin-bottom: 10px; }
+  #entry .field.tight { margin: 0 0 10px; }
+  #entry .field.tight input { font-family: var(--mono); }
   #entry .btn-row { margin-top: 12px; }
 
   .dupe {
@@ -152,7 +163,7 @@
     color: var(--warn-ink);
     border-radius: 8px;
     padding: 9px 12px;
-    font-size: 14px;
+    font-size: var(--fs-note);
     margin: 0 0 12px;
   }
 
@@ -166,7 +177,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 14px;
+    font-size: var(--fs-note);
   }
   .banner span { flex: 1; }
   .banner button { flex: none; }
@@ -175,16 +186,43 @@
 
   #list { list-style: none; margin: 0; padding: 0; }
   #list li {
-    display: flex;
-    align-items: center;
-    gap: 10px;
     padding: 11px 0;
     border-top: 1px solid var(--line);
   }
+  #list .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #list .veh-note {
+    margin: 4px 0 0;
+    font-size: var(--fs-note);
+    color: var(--muted);
+  }
+  #list .veh { list-style: none; margin: 6px 0 0; padding: 0 0 0 12px; }
+  #list .veh li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+    border-top: 0;
+    border-left: 2px solid var(--line);
+    padding-left: 10px;
+  }
+  #list .veh .xe {
+    font-family: var(--mono);
+    font-size: var(--fs-note);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #list .veh .qty { font-size: var(--fs-body); }
   #list li:first-child { border-top: 0; }
   #list .code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 15px;
+    font-family: var(--mono);
+    font-size: var(--fs-body);
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -192,22 +230,22 @@
     white-space: nowrap;
   }
   #list .qty {
-    font-size: 19px;
+    font-size: var(--fs-qty);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     flex: none;
     min-width: 3ch;
     text-align: right;
   }
-  #list time { font-size: 12px; color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+  #list time { font-size: var(--fs-hint); color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
   #list .acts { display: flex; gap: 2px; flex: none; }
-  #list .acts button { min-height: 36px; padding: 6px 9px; font-size: 13px; border-color: transparent; background: transparent; }
-  #empty { color: var(--muted); font-size: 14px; margin: 4px 0; }
+  #list .acts button { min-height: 36px; padding: 6px 9px; font-size: var(--fs-note); border-color: transparent; background: transparent; }
+  #empty { color: var(--muted); font-size: var(--fs-note); margin: 4px 0; }
 
   /* ---- cài đặt ---- */
 
   details.card > summary {
-    font-size: 13px;
+    font-size: var(--fs-note);
     font-weight: 600;
     color: var(--muted);
     cursor: pointer;
@@ -219,11 +257,11 @@
   details.card[open] > summary { margin-bottom: 12px; }
 
   .field { margin-bottom: 12px; }
-  .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+  .field label { display: block; font-size: var(--fs-note); color: var(--muted); margin-bottom: 5px; }
   .field input {
     width: 100%;
     font: inherit;
-    font-size: 16px;
+    font-size: var(--fs-base);
     padding: 11px 12px;
     border: 1px solid var(--line);
     border-radius: 9px;
@@ -231,19 +269,19 @@
     color: var(--ink);
   }
   .preview {
-    font-size: 14px;
+    font-size: var(--fs-note);
     background: #f2f5f7;
     border-radius: 8px;
     padding: 10px 12px;
   }
-  .preview b { font-family: ui-monospace, Menlo, monospace; font-size: 15px; }
+  .preview b { font-family: var(--mono); font-size: var(--fs-body); }
   .preview.bad { background: #fbeae7; color: var(--danger); }
 
-  .status { font-size: 14px; color: var(--muted); min-height: 1.4em; margin: 0 0 12px; }
+  .status { font-size: var(--fs-note); color: var(--muted); min-height: 1.4em; margin: 0 0 12px; }
   .status.ok { color: var(--ok); }
   .status.error { color: var(--danger); }
 
-  .hint { font-size: 12px; color: var(--muted); margin: 16px 0 0; }
+  .hint { font-size: var(--fs-hint); color: var(--muted); margin: 16px 0 0; }
 
   .mobile-guide {
     background: #edf4ff;
@@ -251,7 +289,7 @@
     color: #173d7a;
     border-radius: 10px;
     padding: 10px 12px;
-    font-size: 13px;
+    font-size: var(--fs-note);
     margin: 10px 0 12px;
     line-height: 1.5;
   }
