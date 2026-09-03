@@ -352,6 +352,7 @@ import * as XLSX from "xlsx";
   let state = { date: today(), items: [], settings: { ...DEFAULTS } };
   let scanner = null;
   let running = false;
+  let scannerBusy = false;
   let editIndex = -1;      // >= 0 khi đang sửa một dòng có sẵn
   let manualMode = false;
   let audioCtx = null;
@@ -517,6 +518,8 @@ import * as XLSX from "xlsx";
   }
 
   async function startCamera() {
+    if (scannerBusy || running) return;
+    scannerBusy = true;
     primeAudio();
     $("startBtn").disabled = true;
     setStatus("Đang mở camera…");
@@ -534,29 +537,48 @@ import * as XLSX from "xlsx";
     ];
 
     let lastErr = null;
-    for (const constraints of attempts) {
-      try {
-        await getScanner().start(constraints, scanConfig, onScan, () => {});
-        running = true;
-        $("stopBtn").disabled = false;
-        setStatus("Đưa mã QR vào khung.");
-        return;
-      } catch (err) {
-        lastErr = err;
+    try {
+      for (const constraints of attempts) {
+        try {
+          if (scanner) {
+            try { await scanner.stop(); } catch (_) {}
+            try { scanner.clear(); } catch (_) {}
+          }
+          await getScanner().start(constraints, scanConfig, onScan, () => {});
+          running = true;
+          $("stopBtn").disabled = false;
+          setStatus("Đưa mã QR vào khung.");
+          return;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      throw lastErr || new Error("Không mở được camera.");
+    } catch (err) {
+      $("startBtn").disabled = false;
+      setStatus(cameraError(err), "error");
+    } finally {
+      scannerBusy = false;
+      if (!running) {
+        $("stopBtn").disabled = true;
       }
     }
-
-    $("startBtn").disabled = false;
-    setStatus(cameraError(lastErr), "error");
   }
 
   async function stopCamera() {
+    if (scannerBusy) return;
     if (!running) return;
-    try { await getScanner().stop(); } catch (_) {}
-    try { getScanner().clear(); } catch (_) {}
-    running = false;
-    $("startBtn").disabled = false;
-    $("stopBtn").disabled = true;
+    scannerBusy = true;
+    try {
+      await getScanner().stop();
+      getScanner().clear();
+    } catch (_) {}
+    finally {
+      running = false;
+      scannerBusy = false;
+      $("startBtn").disabled = false;
+      $("stopBtn").disabled = true;
+    }
   }
 
   function cameraError(err) {
