@@ -344,8 +344,9 @@
 </main>
 
 <script type="module">
-import { BrowserQRCodeReader } from "@zxing/browser";
-import { BarcodeFormat, DecodeHintType } from "@zxing/library";
+// The WASM binary is only fetched on browsers without a native
+// BarcodeDetector; Vite emits it as a separate asset either way.
+import zxingWasmUrl from "zxing-wasm/reader/zxing_reader.wasm?url";
 import * as XLSX from "xlsx";
 
 (() => {
@@ -357,8 +358,10 @@ import * as XLSX from "xlsx";
   const DEFAULTS = { delimiter: ",", fieldIndex: 2 };
 
   let state = { date: today(), items: [], settings: { ...DEFAULTS } };
-  let codeReader = null;
-  let scanControls = null;
+  let detector = null;
+  let detectorKind = "";
+  let videoStream = null;
+  let scanLoopId = 0;
   let running = false;
   let scannerBusy = false;
   let scanPaused = false;
@@ -497,45 +500,112 @@ import * as XLSX from "xlsx";
   // Camera
   // ------------------------------------------------------------------
 
-  const readerOptions = {
-    delayBetweenScanAttempts: 80,
-    delayBetweenScanSuccess: 800,
-    tryPlayVideoTimeout: 8000
-  };
+  // Ask for more pixels than we need: a QR filling a small part of the frame
+  // is the usual reason a scan takes several seconds. focusMode is requested
+  // both here and via applyConstraints, since browsers differ on which one
+  // they honour.
+  const cameraAttempts = [
+    { video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 }, height: { ideal: 1080 },
+        frameRate: { ideal: 30 },
+        advanced: [{ focusMode: "continuous" }]
+      } },
+    { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+    { video: { facingMode: "environment" } },
+    { video: true }
+  ];
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  function getReader() {
-    if (!codeReader) {
-      const hints = new Map();
-      hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]);
-      hints.set(DecodeHintType.TRY_HARDER, true);
-      codeReader = new BrowserQRCodeReader(hints, readerOptions);
+  // Native BarcodeDetector where it exists (Android Chrome), ZXing-C++ compiled
+  // to WASM everywhere else (iOS Safari ships no BarcodeDetector). Both speak
+  // the same detect() interface, so the scan loop below does not care which.
+  async function getDetector() {
+    if (detector) return detector;
+
+    if ("BarcodeDetector" in window) {
+      try {
+        const formats = await window.BarcodeDetector.getSupportedFormats();
+        if (formats.includes("qr_code")) {
+          detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+          detectorKind = "native";
+          return detector;
+        }
+      } catch (_) { /* fall through to the WASM build */ }
     }
-    return codeReader;
+
+    const mod = await import("barcode-detector/ponyfill");
+    mod.setZXingModuleOverrides({
+      locateFile: (path, prefix) =>
+        path.endsWith(".wasm") ? zxingWasmUrl : prefix + path
+    });
+    detector = new mod.BarcodeDetector({ formats: ["qr_code"] });
+    detectorKind = "wasm";
+    return detector;
   }
 
-  // Stop the decode loop and hand the camera back to the OS. We own the
-  // <video> element and the MediaStream, so teardown is just "stop the tracks"
-  // — there is no library-internal state left to get stuck in.
+  // Continuous autofocus is the single biggest factor in how long a scan takes;
+  // without it the camera can sit on a blurred frame indefinitely.
+  function applyFocus(stream) {
+    const track = stream.getVideoTracks()[0];
+    if (!track || !track.applyConstraints) return;
+    let caps = {};
+    try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (_) {}
+    const advanced = [];
+    if (caps.focusMode && caps.focusMode.includes("continuous")) {
+      advanced.push({ focusMode: "continuous" });
+    }
+    if (advanced.length) {
+      track.applyConstraints({ advanced }).catch(() => {});
+    }
+  }
+
+  // We own the stream and the <video>, so shutting down is just stopping the
+  // tracks. Bumping scanLoopId retires any loop still in flight.
   function releaseCamera() {
     running = false;
     scanPaused = false;
-    if (scanControls) {
-      try { scanControls.stop(); } catch (_) {}
-      scanControls = null;
+    scanLoopId++;
+    if (videoStream) {
+      videoStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+      videoStream = null;
     }
     const video = $("preview");
     if (video) {
-      const stream = video.srcObject;
-      if (stream && stream.getTracks) {
-        stream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
-      }
       video.srcObject = null;
       try { video.pause(); } catch (_) {}
       video.hidden = true;
     }
     $("readerHint").hidden = false;
+  }
+
+  // One decode per rendered frame via requestVideoFrameCallback, so we never
+  // decode the same frame twice or work on a frame the camera has replaced.
+  function startScanLoop(video) {
+    const myId = ++scanLoopId;
+    const useRvfc = typeof video.requestVideoFrameCallback === "function";
+
+    const schedule = () => {
+      if (myId !== scanLoopId) return;
+      if (useRvfc) video.requestVideoFrameCallback(tick);
+      else setTimeout(tick, 100);
+    };
+
+    const tick = async () => {
+      if (myId !== scanLoopId) return;
+      if (!scanPaused && video.readyState >= 2 && video.videoWidth > 0) {
+        try {
+          const codes = await detector.detect(video);
+          if (myId === scanLoopId && !scanPaused && codes.length) {
+            onScan(codes[0].rawValue);
+          }
+        } catch (_) { /* a bad frame is not worth stopping the loop for */ }
+      }
+      schedule();
+    };
+
+    schedule();
   }
 
   function updateMobileGuide() {
@@ -552,41 +622,41 @@ import * as XLSX from "xlsx";
     setStatus("Đang mở camera…");
     updateMobileGuide();
 
-    // Constraints go straight to getUserMedia, so "environment" picks the rear
-    // camera without needing device labels — those are empty on iOS until
-    // permission has already been granted.
-    const attempts = [
-      { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-      { video: { facingMode: "environment" } },
-      { video: true }
-    ];
-
     const video = $("preview");
     let lastErr = null;
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Trình duyệt này không hỗ trợ camera.");
       }
-      for (let i = 0; i < attempts.length; i++) {
+
+      await getDetector();
+
+      for (let i = 0; i < cameraAttempts.length; i++) {
         releaseCamera();
-        // Let the camera hardware settle before re-opening; iOS Safari rejects
-        // an immediate re-acquire with NotReadableError.
+        // Let the hardware settle before re-opening; iOS Safari rejects an
+        // immediate re-acquire with NotReadableError.
         if (i > 0) await sleep(300);
         try {
-          video.hidden = false;
-          $("readerHint").hidden = true;
-          scanControls = await getReader().decodeFromConstraints(
-            attempts[i], video, onDecode);
-          running = true;
-          scanPaused = false;
-          $("stopBtn").disabled = false;
-          setStatus("Đưa mã QR vào khung.");
-          return;
+          videoStream = await navigator.mediaDevices.getUserMedia(cameraAttempts[i]);
+          break;
         } catch (err) {
           lastErr = err;
+          videoStream = null;
         }
       }
-      throw lastErr || new Error("Không mở được camera.");
+      if (!videoStream) throw lastErr || new Error("Không mở được camera.");
+
+      applyFocus(videoStream);
+      video.srcObject = videoStream;
+      video.hidden = false;
+      $("readerHint").hidden = true;
+      await video.play();
+
+      running = true;
+      scanPaused = false;
+      $("stopBtn").disabled = false;
+      setStatus("Đưa mã QR vào khung.");
+      startScanLoop(video);
     } catch (err) {
       releaseCamera();
       $("startBtn").disabled = false;
@@ -599,15 +669,8 @@ import * as XLSX from "xlsx";
     }
   }
 
-  // Called for every frame: `err` is a NotFoundException whenever the frame
-  // holds no QR code, which is most of them. Only results matter here.
-  function onDecode(result) {
-    if (!result || scanPaused) return;
-    onScan(result.getText());
-  }
-
-  // The camera keeps running while an entry is open; we just ignore results.
-  // Nothing is torn down, so there is no re-acquire to fail on resume.
+  // The camera keeps running while an entry is open; we just skip decoding.
+  // Nothing is torn down, so there is no re-acquire that can fail on resume.
   function pauseScan() {
     if (running) scanPaused = true;
   }
@@ -650,15 +713,23 @@ import * as XLSX from "xlsx";
   // Khi quét được
   // ------------------------------------------------------------------
 
+  let lastReject = { text: "", at: 0 };
+
   function onScan(text) {
     if (!$("entry").hidden) return;   // đang nhập dở, bỏ qua
 
     const code = parseCode(text);
     if (!code) {
+      // The loop decodes every frame, so an unreadable code would otherwise
+      // re-buzz 30 times a second while it sits in view.
+      const now = Date.now();
+      if (lastReject.text === text && now - lastReject.at < 2000) return;
+      lastReject = { text, at: now };
       setStatus("Không tách được mã từ chuỗi vừa quét. Kiểm tra phần cài đặt.", "error");
       buzz(false);
       return;
     }
+    lastReject = { text: "", at: 0 };
 
     pauseScan();
     buzz(true);
