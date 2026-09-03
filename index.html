@@ -244,6 +244,17 @@
 
   .hint { font-size: 12px; color: var(--muted); margin: 16px 0 0; }
 
+  .mobile-guide {
+    background: #edf4ff;
+    border: 1px solid #bfd3ff;
+    color: #173d7a;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13px;
+    margin: 10px 0 12px;
+    line-height: 1.5;
+  }
+
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -270,6 +281,9 @@
   </div>
 
   <p class="status" id="status">Bấm bật camera để bắt đầu.</p>
+  <div class="mobile-guide" id="mobileGuide" hidden>
+    Đặt mã QR vào giữa khung, giữ khoảng cách 15–25 cm, và đều tay để máy dễ đọc hơn trên điện thoại.
+  </div>
 
   <!-- Ô nhập số lượng, chỉ hiện sau khi quét được -->
   <section class="card" id="entry" hidden>
@@ -474,36 +488,66 @@ import * as XLSX from "xlsx";
   // ------------------------------------------------------------------
 
   const scanConfig = {
-    fps: 10,
-    qrbox: (w, h) => { const s = Math.floor(Math.min(w, h) * 0.72); return { width: s, height: s }; },
-    aspectRatio: 1,
-    experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+    fps: 12,
+    qrbox: (viewfinderWidth, viewfinderHeight) => {
+      const minSide = Math.min(viewfinderWidth, viewfinderHeight);
+      const box = Math.max(220, Math.min(320, Math.floor(minSide * 0.72)));
+      return { width: box, height: box };
+    },
+    aspectRatio: 1.333,
+    disableFlip: false,
+    experimentalFeatures: { useBarCodeDetectorIfSupported: false }
   };
 
   function getScanner() {
     if (!scanner) {
       scanner = new Html5Qrcode("reader", {
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        experimentalFeatures: { useBarCodeDetectorIfSupported: false },
         verbose: false
       });
     }
     return scanner;
   }
 
+  function updateMobileGuide() {
+    const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+    $("mobileGuide").hidden = !isPhone;
+  }
+
   async function startCamera() {
     primeAudio();
     $("startBtn").disabled = true;
     setStatus("Đang mở camera…");
-    try {
-      await getScanner().start({ facingMode: "environment" }, scanConfig, onScan, () => {});
-      running = true;
-      $("stopBtn").disabled = false;
-      setStatus("Đưa mã QR vào khung.");
-    } catch (err) {
-      $("startBtn").disabled = false;
-      setStatus(cameraError(err), "error");
+    updateMobileGuide();
+
+    const attempts = [
+      {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      { facingMode: "environment" },
+      { facingMode: { ideal: "user" } },
+      { facingMode: "user" }
+    ];
+
+    let lastErr = null;
+    for (const constraints of attempts) {
+      try {
+        await getScanner().start(constraints, scanConfig, onScan, () => {});
+        running = true;
+        $("stopBtn").disabled = false;
+        setStatus("Đưa mã QR vào khung.");
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
     }
+
+    $("startBtn").disabled = false;
+    setStatus(cameraError(lastErr), "error");
   }
 
   async function stopCamera() {
@@ -845,6 +889,7 @@ import * as XLSX from "xlsx";
   // Nút gửi đi chỉ hiện trên máy hỗ trợ chia sẻ file.
   if (navigator.canShare) $("shareBtn").hidden = false;
 
+  updateMobileGuide();
   load();
   syncSettingsUI();
   render();
