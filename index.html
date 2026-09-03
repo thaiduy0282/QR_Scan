@@ -6,9 +6,6 @@
 <meta name="theme-color" content="#1b2733" />
 <title>Thu sản lượng</title>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-
 <style>
   :root {
     --bg: #eef1f4;
@@ -326,7 +323,10 @@
 
 </main>
 
-<script>
+<script type="module">
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import * as XLSX from "xlsx";
+
 (() => {
   "use strict";
 
