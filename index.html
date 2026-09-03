@@ -45,7 +45,9 @@
     z-index: 20;
     background: #1b2733;
     color: #fff;
-    margin: 0 -12px 12px;
+    /* Thẻ header nằm ngoài <main>, nên không cần lùi âm để tràn viền;
+       lùi âm ở đây làm trang rộng hơn màn hình 24px và trượt ngang được. */
+    margin: 0 0 12px;
     padding: 10px 14px calc(10px + env(safe-area-inset-top));
     padding-top: calc(10px + env(safe-area-inset-top));
     display: flex;
@@ -105,11 +107,16 @@
     background: #101a22;
     border-radius: 12px;
     overflow: hidden;
-    aspect-ratio: 1 / 1;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 20px;
     margin-bottom: 12px;
+    transition: padding 0.15s ease;
+  }
+  #reader.is-live {
+    aspect-ratio: 1 / 1;
+    padding: 0;
   }
   #reader video {
     width: 100%;
@@ -364,7 +371,6 @@ import * as XLSX from "xlsx";
   let scanLoopId = 0;
   let running = false;
   let scannerBusy = false;
-  let scanPaused = false;
   let editIndex = -1;      // >= 0 khi đang sửa một dòng có sẵn
   let manualMode = false;
   let audioCtx = null;
@@ -565,7 +571,6 @@ import * as XLSX from "xlsx";
   // tracks. Bumping scanLoopId retires any loop still in flight.
   function releaseCamera() {
     running = false;
-    scanPaused = false;
     scanLoopId++;
     if (videoStream) {
       videoStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
@@ -578,6 +583,7 @@ import * as XLSX from "xlsx";
       video.hidden = true;
     }
     $("readerHint").hidden = false;
+    $("reader").classList.remove("is-live");
   }
 
   // One decode per rendered frame via requestVideoFrameCallback, so we never
@@ -594,10 +600,10 @@ import * as XLSX from "xlsx";
 
     const tick = async () => {
       if (myId !== scanLoopId) return;
-      if (!scanPaused && video.readyState >= 2 && video.videoWidth > 0) {
+      if (video.readyState >= 2 && video.videoWidth > 0) {
         try {
           const codes = await detector.detect(video);
-          if (myId === scanLoopId && !scanPaused && codes.length) {
+          if (myId === scanLoopId && codes.length) {
             onScan(codes[0].rawValue);
           }
         } catch (_) { /* a bad frame is not worth stopping the loop for */ }
@@ -650,10 +656,10 @@ import * as XLSX from "xlsx";
       video.srcObject = videoStream;
       video.hidden = false;
       $("readerHint").hidden = true;
+      $("reader").classList.add("is-live");
       await video.play();
 
       running = true;
-      scanPaused = false;
       $("stopBtn").disabled = false;
       setStatus("Đưa mã QR vào khung.");
       startScanLoop(video);
@@ -667,16 +673,6 @@ import * as XLSX from "xlsx";
         $("stopBtn").disabled = true;
       }
     }
-  }
-
-  // The camera keeps running while an entry is open; we just skip decoding.
-  // Nothing is torn down, so there is no re-acquire that can fail on resume.
-  function pauseScan() {
-    if (running) scanPaused = true;
-  }
-
-  function resumeScan() {
-    if (running) scanPaused = false;
   }
 
   async function stopCamera() {
@@ -731,7 +727,9 @@ import * as XLSX from "xlsx";
     }
     lastReject = { text: "", at: 0 };
 
-    pauseScan();
+    // Tắt camera ngay: khung ngắm thu lại nên ô nhập nằm gọn trong màn hình,
+    // và người dùng chủ động bật lại khi muốn quét tiếp.
+    stopCamera();
     buzz(true);
     openEntry(code, -1, text);
   }
@@ -766,7 +764,7 @@ import * as XLSX from "xlsx";
 
   function openManual() {
     primeAudio();
-    pauseScan();
+    stopCamera();
     editIndex = -1;
     manualMode = true;
 
@@ -778,13 +776,22 @@ import * as XLSX from "xlsx";
     $("manualCode").value = "";
     $("qtyInput").value = "";
     $("entry").hidden = false;
-    $("manualCode").focus();
+    bringIntoView($("entry"));
+    setTimeout(() => $("manualCode").focus(), 140);
+  }
+
+  function bringIntoView(el) {
+    if (!el || !el.scrollIntoView) return;
+    try { el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+    catch (_) { el.scrollIntoView(); }
   }
 
   function focusQty() {
     const input = $("qtyInput");
-    // Chờ một nhịp để bàn phím số bật đúng trên iOS.
-    setTimeout(() => { input.focus(); input.select(); }, 60);
+    bringIntoView($("entry"));
+    // Chờ một nhịp để bàn phím số bật đúng trên iOS, và để cuộn xong trước
+    // khi bàn phím đẩy layout lên.
+    setTimeout(() => { input.focus(); input.select(); }, 140);
   }
 
   function closeEntry() {
@@ -792,9 +799,10 @@ import * as XLSX from "xlsx";
     editIndex = -1;
     manualMode = false;
     $("qtyInput").value = "";
-    if (running) {
-      resumeScan();
-      setStatus("Đưa mã QR vào khung.");
+    if (!running) {
+      setStatus("Bấm bật camera để quét tiếp.");
+      // Đưa nút bật camera trở lại tầm mắt, khỏi phải cuộn lên.
+      bringIntoView($("camControls"));
     }
   }
 
