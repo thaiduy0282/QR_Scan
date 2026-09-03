@@ -338,7 +338,7 @@
 </main>
 
 <script type="module">
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeScannerState, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import * as XLSX from "xlsx";
 
 (() => {
@@ -500,15 +500,40 @@ import * as XLSX from "xlsx";
     experimentalFeatures: { useBarCodeDetectorIfSupported: false }
   };
 
-  function getScanner() {
-    if (!scanner) {
-      scanner = new Html5Qrcode("reader", {
-        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        experimentalFeatures: { useBarCodeDetectorIfSupported: false },
-        verbose: false
-      });
-    }
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  function createScanner() {
+    scanner = new Html5Qrcode("reader", {
+      formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+      experimentalFeatures: { useBarCodeDetectorIfSupported: false },
+      verbose: false
+    });
     return scanner;
+  }
+
+  // Tear the scanner down completely and never reuse the instance.
+  // html5-qrcode's stop() opens an internal state transition before its
+  // teardown; if that teardown throws part-way (it does when the container
+  // was emptied by clear()), the transition is never closed and every later
+  // start() throws "Cannot transition to a new state, already under
+  // transition". Dropping the instance and resetting the DOM ourselves keeps
+  // that state machine out of the picture.
+  async function disposeScanner() {
+    const inst = scanner;
+    scanner = null;
+    running = false;
+    if (inst) {
+      try {
+        if (inst.getState() !== Html5QrcodeScannerState.NOT_STARTED) {
+          await inst.stop();
+        }
+      } catch (_) {}
+    }
+    const reader = $("reader");
+    if (reader) {
+      reader.innerHTML = "";
+      reader.removeAttribute("style");
+    }
   }
 
   function updateMobileGuide() {
@@ -538,13 +563,18 @@ import * as XLSX from "xlsx";
 
     let lastErr = null;
     try {
-      for (const constraints of attempts) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Trình duyệt này không hỗ trợ camera.");
+      }
+      for (let i = 0; i < attempts.length; i++) {
+        // Each attempt gets a brand-new instance: a failed start() can leave
+        // the previous one wedged mid-transition.
+        await disposeScanner();
+        // Give the camera hardware a moment to release before re-opening;
+        // iOS Safari rejects an immediate re-acquire with NotReadableError.
+        if (i > 0) await sleep(300);
         try {
-          if (scanner) {
-            try { await scanner.stop(); } catch (_) {}
-            try { scanner.clear(); } catch (_) {}
-          }
-          await getScanner().start(constraints, scanConfig, onScan, () => {});
+          await createScanner().start(attempts[i], scanConfig, onScan, () => {});
           running = true;
           $("stopBtn").disabled = false;
           setStatus("Đưa mã QR vào khung.");
@@ -555,6 +585,7 @@ import * as XLSX from "xlsx";
       }
       throw lastErr || new Error("Không mở được camera.");
     } catch (err) {
+      await disposeScanner();
       $("startBtn").disabled = false;
       setStatus(cameraError(err), "error");
     } finally {
@@ -565,15 +596,31 @@ import * as XLSX from "xlsx";
     }
   }
 
+  function pauseScan() {
+    if (!running || !scanner) return;
+    try {
+      if (scanner.getState() === Html5QrcodeScannerState.SCANNING) {
+        scanner.pause(true);
+      }
+    } catch (_) {}
+  }
+
+  function resumeScan() {
+    if (!running || !scanner) return;
+    try {
+      if (scanner.getState() === Html5QrcodeScannerState.PAUSED) {
+        scanner.resume();
+      }
+    } catch (_) {}
+  }
+
   async function stopCamera() {
     if (scannerBusy) return;
     if (!running) return;
     scannerBusy = true;
     try {
-      await getScanner().stop();
-      getScanner().clear();
-    } catch (_) {}
-    finally {
+      await disposeScanner();
+    } finally {
       running = false;
       scannerBusy = false;
       $("startBtn").disabled = false;
@@ -588,8 +635,10 @@ import * as XLSX from "xlsx";
       return "Chưa được cấp quyền camera. Cho phép trong trình duyệt rồi bật lại.";
     if (name === "NotFoundError" || /no camera/i.test(msg))
       return "Không tìm thấy camera trên máy này.";
-    if (name === "NotReadableError")
-      return "Camera đang bị ứng dụng khác chiếm.";
+    if (name === "NotReadableError" || /could not start video source/i.test(msg))
+      return "Camera đang bị ứng dụng khác chiếm. Đóng app đang dùng camera rồi bật lại.";
+    if (/already under transition|not running or paused/i.test(msg))
+      return "Camera đang bận. Bấm bật lại sau vài giây.";
     if (location.protocol !== "https:" && location.hostname !== "localhost")
       return "Camera cần https. Hãy mở trang qua GitHub Pages.";
     return "Không mở được camera. " + msg;
@@ -609,7 +658,7 @@ import * as XLSX from "xlsx";
       return;
     }
 
-    if (running) { try { getScanner().pause(true); } catch (_) {} }
+    pauseScan();
     buzz(true);
     openEntry(code, -1, text);
   }
@@ -644,7 +693,7 @@ import * as XLSX from "xlsx";
 
   function openManual() {
     primeAudio();
-    if (running) { try { getScanner().pause(true); } catch (_) {} }
+    pauseScan();
     editIndex = -1;
     manualMode = true;
 
@@ -671,7 +720,7 @@ import * as XLSX from "xlsx";
     manualMode = false;
     $("qtyInput").value = "";
     if (running) {
-      try { getScanner().resume(); } catch (_) {}
+      resumeScan();
       setStatus("Đưa mã QR vào khung.");
     }
   }
