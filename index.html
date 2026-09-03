@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1b2733" />
+<title>Thu sản lượng</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+  :root {
+    --bg: #eef1f4;
+    --surface: #ffffff;
+    --ink: #16212b;
+    --muted: #5f6f7c;
+    --line: #d3dbe1;
+    --accent: #1a56c4;
+    --accent-dark: #12408f;
+    --ok: #0d7a4f;
+    --warn-bg: #fdf3d8;
+    --warn-line: #e0be5c;
+    --warn-ink: #6b4e07;
+    --danger: #a5301c;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.45;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  main { max-width: 560px; margin: 0 auto; padding: 0 12px 32px; }
+
+  /* ---- thanh trên cùng ---- */
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: #1b2733;
+    color: #fff;
+    margin: 0 -12px 12px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-top));
+    padding-top: calc(10px + env(safe-area-inset-top));
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  header .day { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  header .tally { font-size: 14px; color: #a9bccb; font-variant-numeric: tabular-nums; flex: none; }
+  header .tally b { color: #fff; font-weight: 600; }
+
+  /* ---- khối chung ---- */
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .card h2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+
+  /* ---- nút ---- */
+
+  button {
+    font: inherit;
+    font-size: 16px;
+    font-weight: 500;
+    padding: 13px 16px;
+    min-height: 48px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:active { background: var(--accent-dark); }
+  button.wide { width: 100%; }
+  button.small { font-size: 14px; padding: 8px 12px; min-height: 38px; }
+  button.quiet { background: transparent; border-color: transparent; color: var(--muted); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .4; cursor: default; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row > * { flex: 1; }
+
+  /* ---- camera ---- */
+
+  #reader {
+    background: #101a22;
+    border-radius: 12px;
+    overflow: hidden;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
+  }
+  #reader video, #reader img { width: 100% !important; display: block; }
+  #reader__scan_region { min-height: 0 !important; }
+  #reader__dashboard { display: none; }
+  #reader:empty::after {
+    content: "Camera đang tắt";
+    color: #8ea3b2;
+    font-size: 15px;
+  }
+
+  /* ---- ô nhập số lượng ---- */
+
+  #entry { border-color: var(--accent); border-width: 2px; }
+  #entry .code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    word-break: break-all;
+    margin: 0 0 12px;
+  }
+  #entry input[type="text"], #entry input[type="tel"] {
+    width: 100%;
+    font: inherit;
+    font-size: 22px;
+    font-variant-numeric: tabular-nums;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ink);
+  }
+  #entry #manualCode { font-size: 18px; font-family: ui-monospace, Menlo, monospace; margin-bottom: 10px; }
+  #entry .btn-row { margin-top: 12px; }
+
+  .dupe {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-line);
+    color: var(--warn-ink);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 14px;
+    margin: 0 0 12px;
+  }
+
+  .banner {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-line);
+    color: var(--warn-ink);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+  }
+  .banner span { flex: 1; }
+  .banner button { flex: none; }
+
+  /* ---- danh sách ---- */
+
+  #list { list-style: none; margin: 0; padding: 0; }
+  #list li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 0;
+    border-top: 1px solid var(--line);
+  }
+  #list li:first-child { border-top: 0; }
+  #list .code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 15px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #list .qty {
+    font-size: 19px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    flex: none;
+    min-width: 3ch;
+    text-align: right;
+  }
+  #list time { font-size: 12px; color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+  #list .acts { display: flex; gap: 2px; flex: none; }
+  #list .acts button { min-height: 36px; padding: 6px 9px; font-size: 13px; border-color: transparent; background: transparent; }
+  #empty { color: var(--muted); font-size: 14px; margin: 4px 0; }
+
+  /* ---- cài đặt ---- */
+
+  details.card > summary {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+  }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::after { content: " ▸"; }
+  details.card[open] > summary::after { content: " ▾"; }
+  details.card[open] > summary { margin-bottom: 12px; }
+
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+  .field input {
+    width: 100%;
+    font: inherit;
+    font-size: 16px;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .preview {
+    font-size: 14px;
+    background: #f2f5f7;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .preview b { font-family: ui-monospace, Menlo, monospace; font-size: 15px; }
+  .preview.bad { background: #fbeae7; color: var(--danger); }
+
+  .status { font-size: 14px; color: var(--muted); min-height: 1.4em; margin: 0 0 12px; }
+  .status.ok { color: var(--ok); }
+  .status.error { color: var(--danger); }
+
+  .hint { font-size: 12px; color: var(--muted); margin: 16px 0 0; }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="day" id="dayLabel">—</span>
+  <span class="tally"><b id="countLabel">0</b> mã · <b id="sumLabel">0</b> cái</span>
+</header>
+
+<main>
+
+  <div class="banner" id="oldBanner" hidden>
+    <span id="oldBannerText"></span>
+    <button class="small" id="newDayBtn">Ngày mới</button>
+  </div>
+
+  <div id="reader"></div>
+
+  <div class="btn-row" id="camControls">
+    <button class="primary" id="startBtn">Bật camera</button>
+    <button id="stopBtn" disabled>Tắt</button>
+    <button id="manualBtn">Nhập tay</button>
+  </div>
+
+  <p class="status" id="status">Bấm bật camera để bắt đầu.</p>
+
+  <!-- Ô nhập số lượng, chỉ hiện sau khi quét được -->
+  <section class="card" id="entry" hidden>
+    <h2 id="entryTitle">Mã vừa quét</h2>
+    <input type="text" id="manualCode" placeholder="Nhập mã sản phẩm" hidden
+           autocomplete="off" autocapitalize="characters" spellcheck="false" />
+    <p class="code" id="entryCode"></p>
+    <p class="dupe" id="entryDupe" hidden></p>
+    <input type="tel" id="qtyInput" inputmode="numeric" pattern="[0-9]*"
+           placeholder="Số lượng" autocomplete="off" />
+    <div class="btn-row">
+      <button class="primary" id="saveBtn">Lưu</button>
+      <button id="addBtn" hidden>Cộng dồn</button>
+      <button id="cancelBtn">Bỏ qua</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Đã thu</h2>
+    <p id="empty">Chưa có mã nào.</p>
+    <ul id="list"></ul>
+  </section>
+
+  <div class="btn-row" style="margin-bottom:12px">
+    <button class="primary" id="exportBtn" disabled>Xuất Excel</button>
+    <button id="shareBtn" disabled hidden>Gửi đi</button>
+  </div>
+  <button class="wide quiet danger small" id="clearBtn">Xoá toàn bộ dữ liệu</button>
+
+  <details class="card" style="margin-top:12px">
+    <summary>Cài đặt tách mã</summary>
+    <div class="field">
+      <label for="delimInput">Dấu phân cách (để trống nếu lấy cả chuỗi)</label>
+      <input type="text" id="delimInput" autocomplete="off" spellcheck="false" />
+    </div>
+    <div class="field">
+      <label for="fieldInput">Lấy đoạn thứ mấy</label>
+      <input type="tel" id="fieldInput" inputmode="numeric" pattern="[0-9]*" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label for="testInput">Dán thử một chuỗi QR để kiểm tra</label>
+      <input type="text" id="testInput" autocomplete="off" spellcheck="false"
+             placeholder="2205000325394,TR710029B-01,B2301,2026-09-03 07:26:12" />
+    </div>
+    <p class="preview" id="preview">Kết quả tách sẽ hiện ở đây.</p>
+  </details>
+
+  <p class="hint">
+    Dữ liệu chỉ nằm trong trình duyệt của máy này. Nhớ xuất Excel trước khi kết thúc ngày.
+  </p>
+
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const STORE_KEY = "thu-san-luong-v1";
+
+  const DEFAULTS = { delimiter: ",", fieldIndex: 2 };
+
+  let state = { date: today(), items: [], settings: { ...DEFAULTS } };
+  let scanner = null;
+  let running = false;
+  let editIndex = -1;      // >= 0 khi đang sửa một dòng có sẵn
+  let manualMode = false;
+  let audioCtx = null;
+
+  // ------------------------------------------------------------------
+  // Ngày tháng
+  // ------------------------------------------------------------------
+
+  function today() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+
+  function viDate(iso) {
+    const [y, m, d] = iso.split("-");
+    return `${d}/${m}/${y}`;
+  }
+
+  function clock(ts) {
+    const d = new Date(ts);
+    const p = n => String(n).padStart(2, "0");
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+
+  // ------------------------------------------------------------------
+  // Lưu trữ
+  // ------------------------------------------------------------------
+
+  function save() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    } catch (_) {
+      setStatus("Không lưu tạm được. Hãy xuất Excel sớm.", "error");
+    }
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved && Array.isArray(saved.items)) {
+        state = {
+          date: saved.date || today(),
+          items: saved.items,
+          settings: { ...DEFAULTS, ...(saved.settings || {}) }
+        };
+      }
+    } catch (_) { /* dữ liệu hỏng thì bỏ, bắt đầu lại */ }
+  }
+
+  // ------------------------------------------------------------------
+  // Tách mã sản phẩm khỏi chuỗi QR
+  // ------------------------------------------------------------------
+
+  function parseCode(raw) {
+    const text = String(raw).trim();
+    const { delimiter, fieldIndex } = state.settings;
+    if (!delimiter) return text;
+    const parts = text.split(delimiter);
+    const i = Number(fieldIndex) - 1;
+    if (!(i >= 0) || i >= parts.length) return null;
+    const value = parts[i].trim();
+    return value || null;
+  }
+
+  // ------------------------------------------------------------------
+  // Hiển thị
+  // ------------------------------------------------------------------
+
+  function render() {
+    $("dayLabel").textContent = "Ngày " + viDate(state.date);
+    $("countLabel").textContent = state.items.length;
+    $("sumLabel").textContent = state.items.reduce((s, it) => s + it.qty, 0);
+
+    const stale = state.date !== today();
+    $("oldBanner").hidden = !stale || state.items.length === 0;
+    if (stale && state.items.length) {
+      $("oldBannerText").textContent =
+        `Đang giữ ${state.items.length} mã của ngày ${viDate(state.date)}.`;
+    }
+
+    const list = $("list");
+    list.innerHTML = "";
+    // Mới nhất lên trên, nhưng vẫn giữ chỉ số gốc để sửa/xoá đúng dòng.
+    state.items
+      .map((it, i) => ({ it, i }))
+      .sort((a, b) => b.it.at - a.it.at)
+      .forEach(({ it, i }) => {
+        const li = document.createElement("li");
+
+        const code = document.createElement("span");
+        code.className = "code";
+        code.textContent = it.code;
+        code.title = it.raw || it.code;
+
+        const qty = document.createElement("span");
+        qty.className = "qty";
+        qty.textContent = it.qty;
+
+        const time = document.createElement("time");
+        time.textContent = clock(it.at);
+
+        const acts = document.createElement("div");
+        acts.className = "acts";
+        const edit = document.createElement("button");
+        edit.textContent = "Sửa";
+        edit.setAttribute("aria-label", "Sửa " + it.code);
+        edit.onclick = () => openEntry(it.code, i);
+        const del = document.createElement("button");
+        del.textContent = "Xoá";
+        del.className = "danger";
+        del.setAttribute("aria-label", "Xoá " + it.code);
+        del.onclick = () => removeItem(i, it.code);
+        acts.append(edit, del);
+
+        li.append(code, qty, time, acts);
+        list.appendChild(li);
+      });
+
+    $("empty").hidden = state.items.length > 0;
+    $("exportBtn").disabled = state.items.length === 0;
+    $("shareBtn").disabled = state.items.length === 0;
+  }
+
+  function setStatus(text, kind = "") {
+    $("status").textContent = text;
+    $("status").className = "status" + (kind ? " " + kind : "");
+  }
+
+  // ------------------------------------------------------------------
+  // Camera
+  // ------------------------------------------------------------------
+
+  const scanConfig = {
+    fps: 10,
+    qrbox: (w, h) => { const s = Math.floor(Math.min(w, h) * 0.72); return { width: s, height: s }; },
+    aspectRatio: 1,
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+  };
+
+  function getScanner() {
+    if (!scanner) {
+      scanner = new Html5Qrcode("reader", {
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        verbose: false
+      });
+    }
+    return scanner;
+  }
+
+  async function startCamera() {
+    primeAudio();
+    $("startBtn").disabled = true;
+    setStatus("Đang mở camera…");
+    try {
+      await getScanner().start({ facingMode: "environment" }, scanConfig, onScan, () => {});
+      running = true;
+      $("stopBtn").disabled = false;
+      setStatus("Đưa mã QR vào khung.");
+    } catch (err) {
+      $("startBtn").disabled = false;
+      setStatus(cameraError(err), "error");
+    }
+  }
+
+  async function stopCamera() {
+    if (!running) return;
+    try { await getScanner().stop(); } catch (_) {}
+    try { getScanner().clear(); } catch (_) {}
+    running = false;
+    $("startBtn").disabled = false;
+    $("stopBtn").disabled = true;
+  }
+
+  function cameraError(err) {
+    const name = (err && err.name) || "";
+    const msg = typeof err === "string" ? err : (err && err.message) || "";
+    if (name === "NotAllowedError" || /permission|denied/i.test(msg))
+      return "Chưa được cấp quyền camera. Cho phép trong trình duyệt rồi bật lại.";
+    if (name === "NotFoundError" || /no camera/i.test(msg))
+      return "Không tìm thấy camera trên máy này.";
+    if (name === "NotReadableError")
+      return "Camera đang bị ứng dụng khác chiếm.";
+    if (location.protocol !== "https:" && location.hostname !== "localhost")
+      return "Camera cần https. Hãy mở trang qua GitHub Pages.";
+    return "Không mở được camera. " + msg;
+  }
+
+  // ------------------------------------------------------------------
+  // Khi quét được
+  // ------------------------------------------------------------------
+
+  function onScan(text) {
+    if (!$("entry").hidden) return;   // đang nhập dở, bỏ qua
+
+    const code = parseCode(text);
+    if (!code) {
+      setStatus("Không tách được mã từ chuỗi vừa quét. Kiểm tra phần cài đặt.", "error");
+      buzz(false);
+      return;
+    }
+
+    if (running) { try { getScanner().pause(true); } catch (_) {} }
+    buzz(true);
+    openEntry(code, -1, text);
+  }
+
+  function openEntry(code, index, raw) {
+    editIndex = index;
+    manualMode = false;
+
+    $("manualCode").hidden = true;
+    $("entryCode").hidden = false;
+    $("entryCode").textContent = code;
+    $("entryCode").dataset.raw = raw || "";
+    $("entryTitle").textContent = index >= 0 ? "Sửa dòng đã nhập" : "Mã vừa quét";
+
+    const existing = index >= 0 ? state.items[index] : findItem(code);
+    if (existing) {
+      $("entryDupe").hidden = false;
+      $("entryDupe").textContent =
+        `Mã này đã nhập ${existing.qty} lúc ${clock(existing.at)}.`;
+      $("qtyInput").value = existing.qty;
+      $("addBtn").hidden = index >= 0;   // sửa thì không cần cộng dồn
+    } else {
+      $("entryDupe").hidden = true;
+      $("qtyInput").value = "";
+      $("addBtn").hidden = true;
+    }
+
+    $("entry").hidden = false;
+    setStatus("");
+    focusQty();
+  }
+
+  function openManual() {
+    primeAudio();
+    if (running) { try { getScanner().pause(true); } catch (_) {} }
+    editIndex = -1;
+    manualMode = true;
+
+    $("entryTitle").textContent = "Nhập tay";
+    $("entryCode").hidden = true;
+    $("entryDupe").hidden = true;
+    $("addBtn").hidden = true;
+    $("manualCode").hidden = false;
+    $("manualCode").value = "";
+    $("qtyInput").value = "";
+    $("entry").hidden = false;
+    $("manualCode").focus();
+  }
+
+  function focusQty() {
+    const input = $("qtyInput");
+    // Chờ một nhịp để bàn phím số bật đúng trên iOS.
+    setTimeout(() => { input.focus(); input.select(); }, 60);
+  }
+
+  function closeEntry() {
+    $("entry").hidden = true;
+    editIndex = -1;
+    manualMode = false;
+    $("qtyInput").value = "";
+    if (running) {
+      try { getScanner().resume(); } catch (_) {}
+      setStatus("Đưa mã QR vào khung.");
+    }
+  }
+
+  function findItem(code) {
+    return state.items.find(it => it.code === code) || null;
+  }
+
+  // ------------------------------------------------------------------
+  // Lưu / sửa / xoá
+  // ------------------------------------------------------------------
+
+  function commit(mode) {
+    const qty = parseInt($("qtyInput").value, 10);
+    if (!Number.isFinite(qty) || qty < 0) {
+      setStatus("Số lượng chưa hợp lệ.", "error");
+      focusQty();
+      return;
+    }
+
+    const code = manualMode
+      ? $("manualCode").value.trim().toUpperCase()
+      : $("entryCode").textContent;
+
+    if (!code) {
+      setStatus("Chưa có mã sản phẩm.", "error");
+      $("manualCode").focus();
+      return;
+    }
+
+    if (editIndex >= 0) {
+      const it = state.items[editIndex];
+      it.code = code;
+      it.qty = qty;
+      it.at = Date.now();
+    } else {
+      const existing = findItem(code);
+      if (existing) {
+        existing.qty = mode === "add" ? existing.qty + qty : qty;
+        existing.at = Date.now();
+        if ($("entryCode").dataset.raw) existing.raw = $("entryCode").dataset.raw;
+      } else {
+        state.items.push({
+          code,
+          qty,
+          at: Date.now(),
+          raw: $("entryCode").dataset.raw || ""
+        });
+      }
+    }
+
+    // Phiên đang mở thuộc về ngày hôm nay kể từ lần ghi đầu tiên.
+    if (state.items.length === 1) state.date = today();
+
+    save();
+    render();
+    closeEntry();
+    setStatus(`Đã lưu ${code} = ${qty}.`, "ok");
+  }
+
+  function removeItem(index, code) {
+    if (!confirm(`Xoá ${code} khỏi danh sách?`)) return;
+    state.items.splice(index, 1);
+    save();
+    render();
+    setStatus(`Đã xoá ${code}.`);
+  }
+
+  function clearAll() {
+    if (!state.items.length) { startNewDay(); return; }
+    if (!confirm(`Xoá toàn bộ ${state.items.length} mã đã thu? Không khôi phục được.`)) return;
+    startNewDay();
+    setStatus("Đã xoá sạch. Bắt đầu ngày mới.");
+  }
+
+  function startNewDay() {
+    state.items = [];
+    state.date = today();
+    save();
+    render();
+  }
+
+  // ------------------------------------------------------------------
+  // Xuất Excel
+  // ------------------------------------------------------------------
+
+  function buildWorkbook() {
+    const rows = state.items
+      .slice()
+      .sort((a, b) => a.code.localeCompare(b.code, "en"))
+      .map(it => ({
+        "Mã sản phẩm": it.code,
+        "Số lượng": it.qty,
+        "Giờ quét": clock(it.at)
+      }));
+
+    const ws = XLSX.utils.json_to_sheet(rows, {
+      header: ["Mã sản phẩm", "Số lượng", "Giờ quét"]
+    });
+    ws["!cols"] = [{ wch: 20 }, { wch: 10 }, { wch: 10 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, viDate(state.date).replace(/\//g, "-"));
+    return wb;
+  }
+
+  function fileName() {
+    return `san-luong-${state.date}.xlsx`;
+  }
+
+  function exportFile() {
+    try {
+      XLSX.writeFile(buildWorkbook(), fileName());
+      setStatus(`Đã tạo ${fileName()}.`, "ok");
+    } catch (err) {
+      setStatus("Không tạo được file: " + err.message, "error");
+    }
+  }
+
+  async function shareFile() {
+    try {
+      const out = XLSX.write(buildWorkbook(), { bookType: "xlsx", type: "array" });
+      const file = new File([out], fileName(), {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: fileName() });
+        setStatus("Đã gửi file.", "ok");
+      } else {
+        exportFile();
+      }
+    } catch (err) {
+      if (err && err.name === "AbortError") return;   // người dùng tự huỷ
+      exportFile();
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Tiếng bíp và rung
+  // ------------------------------------------------------------------
+
+  function primeAudio() {
+    if (audioCtx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) { try { audioCtx = new AC(); } catch (_) {} }
+  }
+
+  function buzz(good) {
+    if (navigator.vibrate) navigator.vibrate(good ? 60 : [40, 60, 40]);
+    if (!audioCtx) return;
+    try {
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.value = good ? 950 : 300;
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.16);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.16);
+    } catch (_) {}
+  }
+
+  // ------------------------------------------------------------------
+  // Cài đặt tách mã
+  // ------------------------------------------------------------------
+
+  function syncSettingsUI() {
+    $("delimInput").value = state.settings.delimiter;
+    $("fieldInput").value = state.settings.fieldIndex;
+    updatePreview();
+  }
+
+  function readSettings() {
+    state.settings.delimiter = $("delimInput").value;
+    const n = parseInt($("fieldInput").value, 10);
+    state.settings.fieldIndex = Number.isFinite(n) && n > 0 ? n : 1;
+    save();
+    updatePreview();
+  }
+
+  function updatePreview() {
+    const sample = $("testInput").value.trim();
+    const box = $("preview");
+    if (!sample) {
+      box.className = "preview";
+      box.textContent = "Dán một chuỗi QR vào ô trên để xem mã được tách ra.";
+      return;
+    }
+    const code = parseCode(sample);
+    if (code) {
+      box.className = "preview";
+      box.innerHTML = "Mã sản phẩm: <b></b>";
+      box.querySelector("b").textContent = code;
+    } else {
+      box.className = "preview bad";
+      box.textContent = "Không tách được. Kiểm tra lại dấu phân cách và vị trí đoạn.";
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Gắn sự kiện
+  // ------------------------------------------------------------------
+
+  $("startBtn").onclick = startCamera;
+  $("stopBtn").onclick = () => { stopCamera(); setStatus("Camera đã tắt."); };
+  $("manualBtn").onclick = openManual;
+  $("saveBtn").onclick = () => commit("set");
+  $("addBtn").onclick = () => commit("add");
+  $("cancelBtn").onclick = closeEntry;
+  $("newDayBtn").onclick = () => {
+    if (confirm("Xoá dữ liệu ngày cũ và bắt đầu ngày mới?")) {
+      startNewDay();
+      setStatus("Đã bắt đầu ngày mới.");
+    }
+  };
+  $("clearBtn").onclick = clearAll;
+  $("exportBtn").onclick = exportFile;
+  $("shareBtn").onclick = shareFile;
+
+  $("qtyInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); commit("set"); }
+  });
+  $("manualCode").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); focusQty(); }
+  });
+
+  $("delimInput").addEventListener("input", readSettings);
+  $("fieldInput").addEventListener("input", readSettings);
+  $("testInput").addEventListener("input", updatePreview);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && running) { stopCamera(); setStatus("Camera tạm dừng."); }
+  });
+  window.addEventListener("pagehide", () => { if (running) stopCamera(); });
+
+  // Nút gửi đi chỉ hiện trên máy hỗ trợ chia sẻ file.
+  if (navigator.canShare) $("shareBtn").hidden = false;
+
+  load();
+  syncSettingsUI();
+  render();
+})();
+</script>
+</body>
+</html>
