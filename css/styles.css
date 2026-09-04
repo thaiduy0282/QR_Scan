@@ -285,6 +285,28 @@
 
   .hint { font-size: var(--fs-hint); color: var(--muted); margin: 16px 0 0; }
 
+  /* ---- footer ---- */
+
+  footer {
+    margin: 28px 0 0;
+    padding: 16px 0 4px;
+    border-top: 1px solid var(--line);
+    text-align: center;
+  }
+  footer .brand {
+    margin: 0 0 3px;
+    font-size: var(--fs-note);
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+  }
+  footer .copy {
+    margin: 0;
+    font-size: var(--fs-hint);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
   .mobile-guide {
     background: #edf4ff;
     border: 1px solid #bfd3ff;
