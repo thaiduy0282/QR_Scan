@@ -17,6 +17,12 @@ export function setScanHandler(fn) { onDetect = fn; }
 
 export function isScanning() { return running; }
 
+// Khung ngắm thu nhỏ lại khi đang nhập số lượng: camera vẫn chạy và nút
+// "Tắt" vẫn trong tầm mắt, không phải cuộn lên tìm.
+export function setViewfinderCompact(on) {
+  $("reader").classList.toggle("is-compact", !!on);
+}
+
 let detector = null;
 
 let detectorKind = "";

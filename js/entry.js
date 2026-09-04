@@ -4,12 +4,18 @@ import { $, bringIntoView, setStatus } from "./dom.js";
 import { state, save, parseScan, findItem } from "./store.js";
 import { today, clock } from "./util.js";
 import { buzz, primeAudio } from "./audio.js";
-import { isScanning, stopCamera } from "./scanner.js";
+import { isScanning, setViewfinderCompact } from "./scanner.js";
 import { render } from "./list.js";
 
 let editIndex = -1;      // >= 0 khi đang sửa một dòng có sẵn
 let manualMode = false;
 let lastReject = { text: "", at: 0 };
+
+// Camera chạy suốt, nên một mã nằm yên trong khung sẽ được giải mã lại 30
+// lần mỗi giây. Khoá mã vừa nhận cho tới khi nó rời khỏi khung: mỗi lần còn
+// thấy lại thì gia hạn khoá, ngưng thấy đủ lâu mới cho quét lại.
+const RESCAN_MS = 1500;
+let blocked = { text: "", at: 0 };
 
 // Số xe thường giữ nguyên suốt một chuyến, nên nhớ lại để điền sẵn khi
 // chuỗi QR không có đoạn số xe.
@@ -23,7 +29,17 @@ export function pendingCode() {
 }
 
 export function onScan(text) {
-  if (isEntryOpen()) return;   // đang nhập dở, bỏ qua
+  const now = Date.now();
+
+  // Mã vừa nhận vẫn còn trong khung.
+  if (blocked.text === text) {
+    if (now - blocked.at < RESCAN_MS) { blocked.at = now; return; }
+    blocked = { text: "", at: 0 };
+  }
+
+  // Đang nhập dở thì bỏ qua, nhưng không khoá mã khác: đóng form xong là
+  // quét được ngay.
+  if (isEntryOpen()) return;
 
   const { code, xe } = parseScan(text);
   if (!code) {
@@ -37,10 +53,8 @@ export function onScan(text) {
     return;
   }
   lastReject = { text: "", at: 0 };
+  blocked = { text, at: now };
 
-  // Tắt camera ngay: khung ngắm thu lại nên ô nhập nằm gọn trong màn hình,
-  // và người dùng chủ động bật lại khi muốn quét tiếp.
-  stopCamera();
   buzz(true);
   openScanned(code, xe, text);
 }
@@ -65,6 +79,7 @@ function fillEntry({ title, code, xe, raw, index, existing }) {
   }
 
   $("entry").hidden = false;
+  setViewfinderCompact(true);
   setStatus("");
   focusQty();
 }
@@ -97,7 +112,6 @@ export function openExisting(index) {
 
 export function openManual() {
   primeAudio();
-  stopCamera();
   editIndex = -1;
   manualMode = true;
 
@@ -110,6 +124,7 @@ export function openManual() {
   $("xeInput").value = lastVehicle;
   $("qtyInput").value = "";
   $("entry").hidden = false;
+  setViewfinderCompact(true);
   bringIntoView($("entry"));
   setTimeout(() => $("manualCode").focus(), 140);
 }
@@ -127,7 +142,10 @@ export function closeEntry() {
   editIndex = -1;
   manualMode = false;
   $("qtyInput").value = "";
-  if (!isScanning()) {
+  setViewfinderCompact(false);
+  if (isScanning()) {
+    setStatus("Đưa mã QR vào khung.");
+  } else {
     setStatus("Bấm bật camera để quét tiếp.");
     // Đưa nút bật camera trở lại tầm mắt, khỏi phải cuộn lên.
     bringIntoView($("camControls"));

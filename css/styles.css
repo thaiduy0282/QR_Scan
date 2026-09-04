@@ -118,6 +118,8 @@
     aspect-ratio: 1 / 1;
     padding: 0;
   }
+  /* Đang nhập số lượng: camera vẫn chạy, chỉ thu khung lại cho gọn màn hình. */
+  #reader.is-live.is-compact { aspect-ratio: 16 / 6; }
   #reader video {
     width: 100%;
     height: 100%;
